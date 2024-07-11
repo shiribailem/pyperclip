@@ -284,6 +284,33 @@ def init_dev_clipboard_clipboard():
 
     return copy_dev_clipboard, paste_dev_clipboard
 
+def init_gpaste_clipboard():
+    def start_client_gpaste():
+        args = ['gpaste-client daemon-reexec & exit']
+        result = subprocess.run(args, capture_output=True, text=True, shell=True)
+        args = ["gpaste-client start & exit"]
+        result = subprocess.run(args, capture_output=True, text=True, shell=True)
+
+    def copy_gpaste(text):
+        text = _stringifyText(text)  # Converts non-str values to str.
+        args = ["gpaste-client"]
+        if not text:
+            args.append('delete-history')
+            subprocess.check_call(args, close_fds=True)
+        else:
+            args.append('add')
+            p = subprocess.Popen(args, stdin=subprocess.PIPE, close_fds=True)
+            p.communicate(input=text.encode(ENCODING))
+
+    def paste_gpaste():
+        args = ["gpaste-client history --raw & exit"]
+        result = subprocess.run(args, capture_output=True, text=True, shell=True)
+        last_item_in_history = [str(x).strip() for x in result.stdout.splitlines()][0]
+        return last_item_in_history
+
+    start_client_gpaste()
+    return copy_gpaste, paste_gpaste
+
 
 def init_no_clipboard():
     class ClipboardUnavailable(object):
@@ -538,6 +565,13 @@ def determine_clipboard():
     # Thus, we need to detect the presence of $DISPLAY manually
     # and not load PyQt4 if it is absent.
     elif os.getenv("DISPLAY"):
+        # For GNOME Wayland
+        # wl-clipboard causes screen flickering so we use gpaste if available
+        if os.getenv('XDG_CURRENT_DESKTOP') == 'GNOME' \
+                and os.environ.get("WAYLAND_DISPLAY") \
+                and _executable_exists("gpaste-client"):
+            return init_gpaste_clipboard()
+
         if _executable_exists("xclip"):
             # Note: 2024/06/18 Google Trends shows xclip as more popular than xsel.
             return init_xclip_clipboard()
@@ -590,6 +624,7 @@ def set_clipboard(clipboard):
         "wl-clipboard": init_wl_clipboard,
         "klipper": init_klipper_clipboard,
         "windows": init_windows_clipboard,
+        "gpaste": init_gpaste_clipboard,
         "no": init_no_clipboard,
     }
 
